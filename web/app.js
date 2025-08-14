@@ -1,6 +1,6 @@
 async function loadData() {
   // If you serve /web via GitHub Pages and /data at repo root, this relative path works:
-  const res = await fetch('../data/latest.json', {cache: 'no-store'});
+  const res = await fetch('data/latest.json', {cache: 'no-store'});
   if (!res.ok) throw new Error('Failed to load data/latest.json');
   return res.json();
 }
