@@ -203,4 +203,147 @@ def normalize_and_filter(all_items, tz):
     for it in all_items:
         url = it.get("url")
         if not url or url in seen:
-            co
+            continue
+        seen.add(url)
+        # Normalise text fields
+        it["title"] = strip_ws(it.get("title"))
+        it["summary"] = strip_ws(it.get("summary"))
+        deduped.append(it)
+
+    now = datetime.now(tz)
+    cutoff = now - timedelta(hours=24)
+
+    keep = []
+    for it in deduped:
+        iso = it.get("published_at")
+        if not iso:
+            # Keep undated items (common when scraping lists)
+            keep.append(it)
+            continue
+        try:
+            dt = dtparser.parse(iso)
+            if dt.tzinfo is None:
+                dt = tz.localize(dt)
+            dt = dt.astimezone(tz)
+        except Exception:
+            keep.append(it)
+            continue
+        if dt >= cutoff:
+            keep.append(it)
+
+    return keep
+
+# --- Optional unified RSS output ----------------------------------------------
+def generate_unified_rss(items, tz, site_title="AU Gov Announcements (Daily)"):
+    from xml.sax.saxutils import escape
+    now = datetime.now(tz).strftime("%a, %d %b %Y %H:%M:%S %z")
+    rss = []
+    rss.append('<?xml version="1.0" encoding="UTF-8"?>')
+    rss.append('<rss version="2.0">')
+    rss.append("<channel>")
+    rss.append(f"<title>{escape(site_title)}</title>")
+    rss.append(f"<link>https://example.com/</link>")
+    rss.append(f"<description>Unified feed generated daily</description>")
+    rss.append(f"<lastBuildDate>{now}</lastBuildDate>")
+
+    for it in items[:200]:
+        title = escape(it.get("title") or "")
+        link = escape(it.get("url") or "")
+        desc = escape(it.get("summary") or "")
+        pub = it.get("published_at")
+        if pub:
+            try:
+                dt = dtparser.parse(pub)
+                if dt.tzinfo is None:
+                    dt = tz.localize(dt)
+                pubDate = dt.astimezone(tz).strftime("%a, %d %b %Y %H:%M:%S %z")
+            except Exception:
+                pubDate = now
+        else:
+            pubDate = now
+        guid = make_id(it.get("url") or (it.get("title","") + pubDate))
+        rss.extend([
+            "<item>",
+            f"<title>{title}</title>",
+            f"<link>{link}</link>",
+            f"<guid isPermaLink='false'>{guid}</guid>",
+            f"<pubDate>{pubDate}</pubDate>",
+            f"<description>{desc}</description>" if desc else "",
+            "</item>"
+        ])
+    rss.append("</channel>")
+    rss.append("</rss>")
+    return "\n".join(x for x in rss if x != "")
+
+# --- Main ----------------------------------------------------------------------
+def main():
+    tz, sources = load_sources()
+    errors = []
+    collected = []
+
+    if not sources:
+        print("No sources found in sources.yaml")
+    else:
+        print(f"Loaded {len(sources)} sources")
+
+    for src in sources:
+        name, items, err = fetch_source(src, tz)
+        if err:
+            errors.append({"source": name, "error": err})
+            print(f"[WARN] {name}: {err}")
+        for it in items:
+            it["source"] = name
+        collected.extend(items)
+
+    # Filter (last 24h + undated)
+    kept = normalize_and_filter(collected, tz)
+
+    # Sort newest first (if dated)
+    def sort_key(it):
+        iso = it.get("published_at")
+        if not iso:
+            return datetime.fromtimestamp(0, tz)
+        try:
+            dt = dtparser.parse(iso)
+            if dt.tzinfo is None:
+                dt = tz.localize(dt)
+            return dt.astimezone(tz)
+        except Exception:
+            return datetime.fromtimestamp(0, tz)
+
+    kept.sort(key=sort_key, reverse=True)
+
+    # Write files
+    now = datetime.now(tz)
+    date_str = now.strftime("%Y-%m-%d")
+    daily_path = os.path.join(DATA_DIR, f"{date_str}.json")
+    latest_path = os.path.join(DATA_DIR, "latest.json")
+    rss_path = os.path.join(DATA_DIR, "unified.xml")
+
+    payload = {
+        "date": date_str,
+        "timezone": str(tz),
+        "generated_at": to_iso(now, tz),
+        "count": len(kept),
+        "items": kept,
+        "errors": errors
+    }
+
+    with open(daily_path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2, ensure_ascii=False)
+    with open(latest_path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2, ensure_ascii=False)
+
+    rss_text = generate_unified_rss(kept, tz)
+    with open(rss_path, "w", encoding="utf-8") as f:
+        f.write(rss_text)
+
+    print(f"Wrote {len(kept)} items → {latest_path}")
+    if errors:
+        print("Source errors:")
+        for e in errors:
+            print(" -", e["source"], "=>", e["error"])
+
+if __name__ == "__main__":
+    main()
+
