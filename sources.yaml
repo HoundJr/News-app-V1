@@ -46,7 +46,7 @@ sources:
     selector: a
 
   - name: Australian Securities & Investments Commission (ASIC)
-    homepage: https://asic.gov.au/about-asic/news-centre/
+    homepage: https://www.asic.gov.au/newsroom/media-releases/
     selector: a
 
   - name: Australian Competition & Consumer Commission (ACCC)
