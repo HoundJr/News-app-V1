@@ -10,7 +10,7 @@ sources:
     selector: article a
 
   - name: Department of Finance
-    homepage: https://www.finance.gov.au/news
+    homepage: https://www.finance.gov.au/about-us/news
     selector: article a
 
   - name: Department of Health and Aged Care
