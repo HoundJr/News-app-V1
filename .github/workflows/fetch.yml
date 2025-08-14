@@ -1,0 +1,27 @@
+name: Fetch daily announcements
+
+on:
+  schedule:
+    # ~00:10 Brisbane most of the year; small drift during AEDT is OK for a daily job
+    - cron: "10 14 * * *"
+  workflow_dispatch:
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install deps
+        run: pip install requests beautifulsoup4 feedparser pyyaml python-dateutil pytz
+      - name: Run fetcher
+        run: python scripts/fetch.py
+      - name: Commit data
+        run: |
+          git config user.name "auto-bot"
+          git config user.email "bot@example.com"
+          git add data/
+          git commit -m "chore: daily data update" || echo "No changes to commit"
+          git push
