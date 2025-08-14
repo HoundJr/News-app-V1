@@ -1,0 +1,57 @@
+name: Fetch & Deploy
+
+on:
+  schedule:
+    - cron: "10 14 * * *"     # ~00:10 Brisbane most of the year
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+permissions:
+  contents: write   # so we can commit the data
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install requests beautifulsoup4 feedparser pyyaml python-dateutil pytz
+      - name: Run fetcher
+        run: python scripts/fetch.py
+      - name: Commit data (if changed)
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if ! git diff --quiet -- web/data/ ; then
+            git add web/data/
+            git commit -m "chore: update daily data ($(date -u +'%Y-%m-%d %H:%M:%S') UTC)"
+            git push
+          else
+            echo "No changes to commit."
+          fi
+
+  deploy:
+    needs: fetch
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Assert data exists (debug helper)
+        run: ls -la web/data || true
+      - name: Upload site artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: web
+      - name: Deploy to Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
