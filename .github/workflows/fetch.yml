@@ -40,8 +40,8 @@ jobs:
           BRANCH_NAME: ${{ github.ref_name }}
         run: |
           # Only commit if data/ actually changed
-          if ! git diff --quiet -- data/ ; then
-            git add data/
+          if ! git diff --quiet -- web/data/ ; then
+            git add web/data/
             git commit -m "chore: update daily data ($(date -u +'%Y-%m-%d %H:%M:%S') UTC)"
             # Rebase in case another commit landed between checkout & push
             git pull --rebase origin "$BRANCH_NAME" || true
