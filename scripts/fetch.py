@@ -11,7 +11,7 @@ from dateutil import parser as dtparser
 import pytz
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DATA_DIR = os.path.join(ROOT, "data")
+DATA_DIR = os.path.join(ROOT, "web", "data")
 os.makedirs(DATA_DIR, exist_ok=True)
 SOURCES_FILE = os.path.join(ROOT, "sources.yaml")
 
