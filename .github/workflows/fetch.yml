@@ -2,26 +2,50 @@ name: Fetch daily announcements
 
 on:
   schedule:
-    # ~00:10 Brisbane most of the year; small drift during AEDT is OK for a daily job
-    - cron: "10 14 * * *"
+    - cron: "10 14 * * *"   # ~00:10 Brisbane most of the year
   workflow_dispatch:
+
+# 👇 Needed so the job can push to your repo
+permissions:
+  contents: write
 
 jobs:
   fetch:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0        # ensure we can rebase/push back to the same branch
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
       - name: Install deps
-        run: pip install requests beautifulsoup4 feedparser pyyaml python-dateutil pytz
-      - name: Run fetcher
-        run: python scripts/fetch.py
-      - name: Commit data
         run: |
-          git config user.name "auto-bot"
-          git config user.email "bot@example.com"
-          git add data/
-          git commit -m "chore: daily data update" || echo "No changes to commit"
-          git push
+          pip install requests beautifulsoup4 feedparser pyyaml python-dateutil pytz
+
+      - name: Run fetcher
+        run: |
+          python scripts/fetch.py
+
+      - name: Configure git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Commit & push changes (if any)
+        env:
+          BRANCH_NAME: ${{ github.ref_name }}
+        run: |
+          # Only commit if data/ actually changed
+          if ! git diff --quiet -- data/ ; then
+            git add data/
+            git commit -m "chore: update daily data ($(date -u +'%Y-%m-%d %H:%M:%S') UTC)"
+            # Rebase in case another commit landed between checkout & push
+            git pull --rebase origin "$BRANCH_NAME" || true
+            git push origin HEAD:"$BRANCH_NAME"
+          else
+            echo "No changes to commit."
+          fi
