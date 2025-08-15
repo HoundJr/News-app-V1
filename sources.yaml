@@ -17,8 +17,8 @@ sources:
     homepage: https://www.health.gov.au/news
     selector: article a
 
-  - name: Department of Home Affairs
-    homepage: https://www.homeaffairs.gov.au/news-media
+  - name: Border Force
+    homepage: https://www.abf.gov.au/sitenewsroom
     selector: a
 
   - name: Department of Climate Change, Energy, the Environment and Water
