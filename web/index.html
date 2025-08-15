@@ -1,36 +1,44 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <title>AU Gov Announcements — Today</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <!-- Pico.css for quick nice defaults -->
-  <link rel="stylesheet" href="https://unpkg.com/@picocss/pico@2.0.6/css/pico.min.css">
-  <link rel="stylesheet" href="styles.css">
+  <meta charset="utf-8" />
+  <title>Australian Government Announcements — Today</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- Minimal nice defaults -->
+  <link rel="stylesheet" href="https://unpkg.com/@picocss/pico@2.0.6/css/pico.min.css" />
+  <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <main class="container">
     <header>
       <h1>Australian Government Announcements</h1>
       <p id="subtitle">Today</p>
+
       <div class="controls">
-        <input id="search" type="search" placeholder="Search titles & summaries…">
-        <select id="sourceFilter">
+        <input id="search" type="search" placeholder="Search titles & content…" aria-label="Search" />
+        <select id="sourceFilter" aria-label="Filter by source">
           <option value="">All sources</option>
         </select>
       </div>
+
       <details>
         <summary>About</summary>
-        <p>Unofficial daily aggregator of announcements from Australian Government departments & agencies. Click through for originals.</p>
+        <p>
+          Unofficial daily aggregator of announcements from Australian Government departments & agencies.
+          Article bodies shown below are extracted from the original pages. Always click “Open original” for canonical content.
+        </p>
       </details>
     </header>
 
     <section id="summary"></section>
+
     <section id="list"></section>
   </main>
 
-  <!-- Fuse.js for simple client-side search -->
+  <!-- Client-side fuzzy search -->
   <script src="https://cdn.jsdelivr.net/npm/fuse.js@7.0.0"></script>
+  <!-- Sanitize any HTML we inject (very important) -->
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
