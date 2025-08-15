@@ -1,14 +1,13 @@
+# .github/workflows/site.yml
 name: Fetch & Deploy
 
 on:
   schedule:
     - cron: "10 14 * * *"     # ~00:10 Brisbane most of the year
-  push:
-    branches: [ "main" ]
-  workflow_dispatch:
+  workflow_dispatch:           # manual run
 
 permissions:
-  contents: write   # so we can commit the data
+  contents: write              # to commit web/data/*
   pages: write
   id-token: write
 
@@ -21,11 +20,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+        with: { fetch-depth: 0 }
       - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
+        with: { python-version: "3.11" }
       - run: pip install requests beautifulsoup4 feedparser pyyaml python-dateutil pytz trafilatura
       - name: Run fetcher
         run: python scripts/fetch.py
@@ -46,8 +43,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Assert data exists (debug helper)
-        run: ls -la web/data || true
       - name: Upload site artifact
         uses: actions/upload-pages-artifact@v3
         with:
