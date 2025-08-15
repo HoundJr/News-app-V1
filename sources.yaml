@@ -7,7 +7,7 @@ timezone: Australia/Brisbane
 sources:
   - name: Digital Transformation Agency
     feed: https://www.dta.gov.au/news-and-blogs/latest/feed/all
-    selector: article a
+    selector: article a 
 
   - name: Department of Finance
     homepage: https://www.finance.gov.au/about-us/news
