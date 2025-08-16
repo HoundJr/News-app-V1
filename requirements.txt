@@ -1,0 +1,8 @@
+requests
+beautifulsoup4
+feedparser
+pyyaml
+python-dateutil
+pytz
+trafilatura
+readability-lxml
