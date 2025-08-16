@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
 # scripts/fetch.py
-#
-# Fetches announcements, normalises them, and (NEW) extracts full article content.
-# Writes JSON and a unified RSS into web/data/ so GitHub Pages can serve them.
 
 import json, os, re, hashlib, time
 from datetime import datetime, timedelta
@@ -16,15 +13,16 @@ from dateutil import parser as dtparser
 import pytz
 import trafilatura
 from urllib import robotparser as urobot
+from readability import Document
 
 # --- Paths --------------------------------------------------------------------
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DATA_DIR = os.path.join(ROOT, "web", "data")  # publish under /web
+DATA_DIR = os.path.join(ROOT, "web", "data")
 os.makedirs(DATA_DIR, exist_ok=True)
 SOURCES_FILE = os.path.join(ROOT, "sources.yaml")
 
 # --- HTTP session --------------------------------------------------------------
-USER_AGENT = "AusGovAnnouncementsBot/0.3 (+github)"
+USER_AGENT = "AusGovAnnouncementsBot/0.4 (+github)"
 SESSION = requests.Session()
 SESSION.headers.update({
     "User-Agent": USER_AGENT,
@@ -33,10 +31,8 @@ SESSION.headers.update({
 })
 
 # --- Robots cache --------------------------------------------------------------
-ROBOTS_CACHE = {}  # base -> RobotFileParser
-
+ROBOTS_CACHE = {}
 def robots_can_fetch(url: str) -> bool:
-    """Respect robots.txt; default to allow if robots not reachable."""
     try:
         p = urlparse(url)
         base = f"{p.scheme}://{p.netloc}"
@@ -44,14 +40,12 @@ def robots_can_fetch(url: str) -> bool:
         if rp is None:
             rp = urobot.RobotFileParser()
             rp.set_url(urljoin(base, "/robots.txt"))
-            try:
-                rp.read()
+            try: rp.read()
             except Exception:
                 ROBOTS_CACHE[base] = None
-                return True  # don't block if robots can't be read
+                return True
             ROBOTS_CACHE[base] = rp
-        if rp is None:
-            return True
+        if rp is None: return True
         return rp.can_fetch(USER_AGENT, p.path or "/")
     except Exception:
         return True
@@ -73,8 +67,7 @@ def make_id(url):
 
 def to_iso(dt, tz):
     if dt is None: return None
-    if dt.tzinfo is None:
-        dt = tz.localize(dt)
+    if dt.tzinfo is None: dt = tz.localize(dt)
     return dt.astimezone(tz).isoformat()
 
 def clean_url(u):
@@ -102,7 +95,6 @@ def find_feed_links(html, base_url):
         href = a.get("href", "")
         if href and any(x in href.lower() for x in ["/feed", "rss", "atom", ".xml"]):
             feeds.append(urljoin(base_url, href))
-    # dedup keep order
     seen, uniq = set(), []
     for u in feeds:
         if u not in seen:
@@ -133,11 +125,6 @@ def parse_entry_datetime(entry, tz):
 
 # --- Source fetcher ------------------------------------------------------------
 def fetch_source(src, tz):
-    """
-    Supports:
-      - feed: <rss/atom URL>  (preferred)
-      - homepage: <URL> [+ selector:]  (auto-detect feeds; else scrape)
-    """
     name = src.get("name", "Unknown Source")
     feed_override = src.get("feed")
     homepage = src.get("homepage")
@@ -191,37 +178,116 @@ def fetch_source(src, tz):
     except Exception as e:
         return name, [], f"{type(e).__name__}: {e}"
 
-# --- Content extraction (NEW) --------------------------------------------------
+# --- HTML pruning --------------------------------------------------------------
+REMOVE_TAGS = {
+    "script","style","noscript","template","iframe","canvas","svg",
+    "form","input","button","select","textarea","label",
+    "nav","header","footer","aside"
+}
+ROLE_BLOCKLIST = {
+    "navigation","banner","contentinfo","complementary","search",
+    "menu","menubar","toolbar","dialog","alert","alertdialog"
+}
+CLASS_PAT = re.compile(r"(breadcrumb|nav|menu|header|footer|sidebar|share|social|subscribe|pagination|toolbar|skip|cookie|consent|related|widget)", re.I)
+
+def absolutize_links(soup: BeautifulSoup, base_url: str):
+    for a in soup.find_all("a", href=True):
+        href = a["href"]
+        if href.startswith("#"):
+            # drop in-page anchors that look like UI controls
+            a.decompose()
+            continue
+        a["href"] = urljoin(base_url, href)
+
+def prune_html(html: str, base_url: str) -> str:
+    soup = BeautifulSoup(html, "html.parser")
+
+    # Remove known UI/interactive tags
+    for t in list(REMOVE_TAGS):
+        for el in soup.find_all(t):
+            el.decompose()
+
+    # Remove by ARIA role
+    for el in soup.find_all(attrs={"role": True}):
+        role = str(el.get("role","")).lower()
+        if role in ROLE_BLOCKLIST:
+            el.decompose()
+
+    # Remove elements by class keywords
+    for el in soup.find_all(True, class_=True):
+        classes = " ".join([c for c in el.get("class", []) if isinstance(c,str)])
+        if classes and CLASS_PAT.search(classes):
+            el.decompose()
+
+    # Remove list blocks that are mostly links (menus)
+    for el in soup.find_all(["ul","ol","div"]):
+        links = el.find_all("a")
+        text = strip_ws(el.get_text(" ", strip=True))
+        if len(links) >= 10 or (len(links) >= 5 and len(text) < 200):
+            el.decompose()
+
+    # Fix relative links, drop in-page anchors
+    absolutize_links(soup, base_url)
+
+    # Optional: strip images if any slipped in
+    for img in soup.find_all("img"):
+        img.decompose()
+
+    cleaned = strip_ws(soup.get_text(" ", strip=False))
+    if len(cleaned) < 120:
+        # too short to be useful
+        return ""
+    return str(soup)
+
+# --- Content extraction --------------------------------------------------------
 def extract_main_content(html: str, url: str) -> str:
-    """Return main article HTML (sanitized by trafilatura)."""
+    # Try trafilatura first
     try:
         out = trafilatura.extract(
             html,
             url=url,
-            include_images=False,  # keep it text-focused
+            include_images=False,
             include_tables=True,
             favor_recall=True,
             output_format="html"
         )
         if out:
-            return out
+            pruned = prune_html(out, url)
+            if pruned:
+                return pruned
     except Exception:
         pass
 
-    # Fallback: crude main/article guess
-    soup = BeautifulSoup(html, "html.parser")
-    candidates = soup.select("article") or soup.select("main") or soup.select('section[class*="content"],div[class*="content"]')
-    for node in candidates:
-        text = strip_ws(node.get_text(" ", strip=True))
-        if text and len(text) > 200:
-            return str(node)
+    # Fallback: readability
+    try:
+        doc = Document(html)
+        article_html = doc.summary(html_partial=True)
+        if article_html:
+            pruned = prune_html(article_html, url)
+            if pruned:
+                return pruned
+    except Exception:
+        pass
+
+    # Last resort: pick a large <article>/<main> block
+    try:
+        soup = BeautifulSoup(html, "html.parser")
+        candidates = soup.select("article") or soup.select("main")
+        for node in candidates:
+            node_html = str(node)
+            pruned = prune_html(node_html, url)
+            if pruned:
+                return pruned
+    except Exception:
+        pass
+
     return ""
 
 def truncate_html(html: str, max_chars: int = 8000) -> str:
     if not html: return ""
     return html if len(html) <= max_chars else (html[:max_chars] + "…")
 
-# --- Filtering: last 24h + undated --------------------------------------------
+# --- Filtering (last 24h + undated) -------------------------------------------
 def normalize_and_filter(all_items, tz):
     seen = set(); deduped = []
     for it in all_items:
@@ -307,36 +373,32 @@ def main():
             it["source"] = name
         collected.extend(items)
 
-    # Phase 2: filter (last 24h + undated)
+    # Phase 2: filter window
     kept = normalize_and_filter(collected, tz)
 
-    # Phase 3 (NEW): fetch full content for a reasonable number of items
-    MAX_ARTICLES = 60  # safety cap per run
+    # Phase 3: fetch & clean full content
+    MAX_ARTICLES = 60
     fetched = 0
     for it in kept:
-        if fetched >= MAX_ARTICLES:
-            break
+        if fetched >= MAX_ARTICLES: break
         url = it.get("url")
         if not url: continue
-        if not robots_can_fetch(url):
-            continue
+        if not robots_can_fetch(url): continue
         try:
             resp = fetch_url(url, timeout=25)
             content_html = extract_main_content(resp.text, url)
             if content_html:
-                content_html = truncate_html(content_html, max_chars=8000)
-                it["content_html"] = content_html
-                # derive summary if missing
+                it["content_html"] = truncate_html(content_html, max_chars=8000)
                 if not it.get("summary"):
-                    text = strip_ws(BeautifulSoup(content_html, "html.parser").get_text())
+                    text = strip_ws(BeautifulSoup(it["content_html"], "html.parser").get_text())
                     it["summary"] = text[:280]
                 fetched += 1
-                time.sleep(0.5)  # be polite
+                time.sleep(0.4)  # gentle
         except Exception as e:
             errors.append({"source": it.get("source","?"), "url": url, "error": f"{type(e).__name__}: {e}"})
             continue
 
-    # Sort newest first (if dated)
+    # Sort newest first
     def sort_key(it):
         iso = it.get("published_at")
         if not iso: return datetime.fromtimestamp(0, tz)
