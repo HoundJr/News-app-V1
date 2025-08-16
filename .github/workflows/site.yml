@@ -1,13 +1,12 @@
-# .github/workflows/site.yml
 name: Fetch & Deploy
 
 on:
   schedule:
-    - cron: "10 14 * * *"     # ~00:10 Brisbane most of the year
-  workflow_dispatch:           # manual run
+    - cron: "10 14 * * *"     # daily ~00:10 Brisbane
+  workflow_dispatch:
 
 permissions:
-  contents: write              # to commit web/data/*
+  contents: write
   pages: write
   id-token: write
 
@@ -18,15 +17,26 @@ concurrency:
 jobs:
   fetch:
     runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.commit.outputs.changed }}
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
+
       - uses: actions/setup-python@v5
-        with: { python-version: "3.11" }
-      - run: pip install requests beautifulsoup4 feedparser pyyaml python-dateutil pytz trafilatura readability-lxml
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: "requirements.txt"
+
+      - name: Install deps
+        run: pip install -r requirements.txt
+
       - name: Run fetcher
         run: python scripts/fetch.py
+
       - name: Commit data (if changed)
+        id: commit
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -34,12 +44,15 @@ jobs:
             git add web/data/
             git commit -m "chore: update daily data ($(date -u +'%Y-%m-%d %H:%M:%S') UTC)"
             git push
+            echo "changed=true" >> $GITHUB_OUTPUT
           else
             echo "No changes to commit."
+            echo "changed=false" >> $GITHUB_OUTPUT
           fi
 
   deploy:
     needs: fetch
+    if: needs.fetch.outputs.changed == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
