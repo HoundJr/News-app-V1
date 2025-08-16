@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-# scripts/fetch.py
+# scripts/fetch.py  — faster via (a) content cache (b) small parallel fetch
 
 import json, os, re, hashlib, time
 from datetime import datetime, timedelta
 from urllib.parse import urljoin, urlparse
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
 from bs4 import BeautifulSoup
@@ -15,14 +16,22 @@ import trafilatura
 from urllib import robotparser as urobot
 from readability import Document
 
-# --- Paths --------------------------------------------------------------------
+# ------------ Tunables (adjust if needed) -------------------------------------
+MAX_ARTICLES_TOTAL = 120           # hard cap of items considered after filtering
+MAX_NEW_FETCHES = 30               # max number of *new* URLs to fetch per run
+MAX_WORKERS = 5                    # parallel content fetchers (be polite)
+FETCH_TIMEOUT = 20
+CACHE_MAX_ENTRIES = 3000           # size cap of content cache
+CACHE_STALE_DAYS = 14              # re-fetch if older than this
+# -----------------------------------------------------------------------------
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(ROOT, "web", "data")
 os.makedirs(DATA_DIR, exist_ok=True)
 SOURCES_FILE = os.path.join(ROOT, "sources.yaml")
+CACHE_FILE = os.path.join(DATA_DIR, "content_cache.json")
 
-# --- HTTP session --------------------------------------------------------------
-USER_AGENT = "AusGovAnnouncementsBot/0.4 (+github)"
+USER_AGENT = "AusGovAnnouncementsBot/0.5 (+github)"
 SESSION = requests.Session()
 SESSION.headers.update({
     "User-Agent": USER_AGENT,
@@ -30,12 +39,11 @@ SESSION.headers.update({
     "Accept-Language": "en-AU,en;q=0.9"
 })
 
-# --- Robots cache --------------------------------------------------------------
 ROBOTS_CACHE = {}
+
 def robots_can_fetch(url: str) -> bool:
     try:
-        p = urlparse(url)
-        base = f"{p.scheme}://{p.netloc}"
+        p = urlparse(url); base = f"{p.scheme}://{p.netloc}"
         rp = ROBOTS_CACHE.get(base)
         if rp is None:
             rp = urobot.RobotFileParser()
@@ -50,7 +58,6 @@ def robots_can_fetch(url: str) -> bool:
     except Exception:
         return True
 
-# --- Utils ---------------------------------------------------------------------
 def load_sources():
     with open(SOURCES_FILE, "r", encoding="utf-8") as f:
         doc = yaml.safe_load(f) or {}
@@ -58,28 +65,20 @@ def load_sources():
     tz = pytz.timezone(tzname)
     return tz, doc.get("sources", [])
 
-def strip_ws(s):
-    if not s: return ""
-    return re.sub(r"\s+", " ", str(s)).strip()
-
-def make_id(url):
-    return hashlib.sha1((url or "").encode("utf-8")).hexdigest()[:16]
-
+def strip_ws(s): return re.sub(r"\s+", " ", str(s or "")).strip()
+def make_id(url): return hashlib.sha1((url or "").encode("utf-8")).hexdigest()[:16]
 def to_iso(dt, tz):
     if dt is None: return None
     if dt.tzinfo is None: dt = tz.localize(dt)
     return dt.astimezone(tz).isoformat()
-
 def clean_url(u):
     if not u: return u
-    parsed = urlparse(u)
-    clean = parsed._replace(query="", fragment="")
-    return clean.geturl()
+    p = urlparse(u)
+    return p._replace(query="", fragment="").geturl()
 
-def fetch_url(url, timeout=25):
-    r = SESSION.get(url, timeout=timeout)
-    r.raise_for_status()
-    return r
+def fetch_url(url, timeout=FETCH_TIMEOUT):
+    # Use a plain GET per call to avoid threading issues with one Session
+    return requests.get(url, headers=SESSION.headers, timeout=timeout)
 
 def find_feed_links(html, base_url):
     soup = BeautifulSoup(html, "html.parser")
@@ -123,7 +122,6 @@ def parse_entry_datetime(entry, tz):
             continue
     return None
 
-# --- Source fetcher ------------------------------------------------------------
 def fetch_source(src, tz):
     name = src.get("name", "Unknown Source")
     feed_override = src.get("feed")
@@ -135,9 +133,9 @@ def fetch_source(src, tz):
             items = []
             parsed = feedparser.parse(feed_override)
             for e in parsed.entries[:80]:
-                url = clean_url(e.get("link") or "")
+                url = clean_url(e.get("link") or ""); 
                 if not url: continue
-                title = strip_ws(e.get("title") or "")
+                title = strip_ws(e.get("title") or ""); 
                 if not title: continue
                 dt = parse_entry_datetime(e, tz)
                 summary_html = e.get("summary") or e.get("description") or ""
@@ -151,7 +149,7 @@ def fetch_source(src, tz):
         if not homepage:
             return name, [], "No feed or homepage provided"
 
-        resp = fetch_url(homepage)
+        resp = fetch_url(homepage); resp.raise_for_status()
         html = resp.text
         feed_links = find_feed_links(html, homepage)
         if feed_links:
@@ -178,116 +176,101 @@ def fetch_source(src, tz):
     except Exception as e:
         return name, [], f"{type(e).__name__}: {e}"
 
-# --- HTML pruning --------------------------------------------------------------
-REMOVE_TAGS = {
-    "script","style","noscript","template","iframe","canvas","svg",
-    "form","input","button","select","textarea","label",
-    "nav","header","footer","aside"
-}
-ROLE_BLOCKLIST = {
-    "navigation","banner","contentinfo","complementary","search",
-    "menu","menubar","toolbar","dialog","alert","alertdialog"
-}
+# ---- HTML pruning (same as before) -------------------------------------------
+REMOVE_TAGS = {"script","style","noscript","template","iframe","canvas","svg",
+               "form","input","button","select","textarea","label","nav","header","footer","aside"}
+ROLE_BLOCKLIST = {"navigation","banner","contentinfo","complementary","search","menu","menubar","toolbar","dialog","alert","alertdialog"}
 CLASS_PAT = re.compile(r"(breadcrumb|nav|menu|header|footer|sidebar|share|social|subscribe|pagination|toolbar|skip|cookie|consent|related|widget)", re.I)
 
 def absolutize_links(soup: BeautifulSoup, base_url: str):
     for a in soup.find_all("a", href=True):
         href = a["href"]
         if href.startswith("#"):
-            # drop in-page anchors that look like UI controls
-            a.decompose()
-            continue
+            a.decompose(); continue
         a["href"] = urljoin(base_url, href)
 
 def prune_html(html: str, base_url: str) -> str:
     soup = BeautifulSoup(html, "html.parser")
-
-    # Remove known UI/interactive tags
     for t in list(REMOVE_TAGS):
-        for el in soup.find_all(t):
-            el.decompose()
-
-    # Remove by ARIA role
+        for el in soup.find_all(t): el.decompose()
     for el in soup.find_all(attrs={"role": True}):
         role = str(el.get("role","")).lower()
-        if role in ROLE_BLOCKLIST:
-            el.decompose()
-
-    # Remove elements by class keywords
+        if role in ROLE_BLOCKLIST: el.decompose()
     for el in soup.find_all(True, class_=True):
         classes = " ".join([c for c in el.get("class", []) if isinstance(c,str)])
-        if classes and CLASS_PAT.search(classes):
-            el.decompose()
-
-    # Remove list blocks that are mostly links (menus)
+        if classes and CLASS_PAT.search(classes): el.decompose()
     for el in soup.find_all(["ul","ol","div"]):
         links = el.find_all("a")
         text = strip_ws(el.get_text(" ", strip=True))
         if len(links) >= 10 or (len(links) >= 5 and len(text) < 200):
             el.decompose()
-
-    # Fix relative links, drop in-page anchors
     absolutize_links(soup, base_url)
-
-    # Optional: strip images if any slipped in
-    for img in soup.find_all("img"):
-        img.decompose()
-
+    for img in soup.find_all("img"): img.decompose()
     cleaned = strip_ws(soup.get_text(" ", strip=False))
-    if len(cleaned) < 120:
-        # too short to be useful
-        return ""
+    if len(cleaned) < 120: return ""
     return str(soup)
 
-# --- Content extraction --------------------------------------------------------
 def extract_main_content(html: str, url: str) -> str:
-    # Try trafilatura first
     try:
-        out = trafilatura.extract(
-            html,
-            url=url,
-            include_images=False,
-            include_tables=True,
-            favor_recall=True,
-            output_format="html"
-        )
+        out = trafilatura.extract(html, url=url, include_images=False, include_tables=True, favor_recall=True, output_format="html")
         if out:
             pruned = prune_html(out, url)
-            if pruned:
-                return pruned
-    except Exception:
-        pass
-
-    # Fallback: readability
+            if pruned: return pruned
+    except Exception: pass
     try:
         doc = Document(html)
         article_html = doc.summary(html_partial=True)
         if article_html:
             pruned = prune_html(article_html, url)
-            if pruned:
-                return pruned
-    except Exception:
-        pass
-
-    # Last resort: pick a large <article>/<main> block
+            if pruned: return pruned
+    except Exception: pass
     try:
         soup = BeautifulSoup(html, "html.parser")
         candidates = soup.select("article") or soup.select("main")
         for node in candidates:
-            node_html = str(node)
-            pruned = prune_html(node_html, url)
-            if pruned:
-                return pruned
-    except Exception:
-        pass
-
+            pruned = prune_html(str(node), url)
+            if pruned: return pruned
+    except Exception: pass
     return ""
 
 def truncate_html(html: str, max_chars: int = 8000) -> str:
     if not html: return ""
     return html if len(html) <= max_chars else (html[:max_chars] + "…")
 
-# --- Filtering (last 24h + undated) -------------------------------------------
+# ---- Content cache -----------------------------------------------------------
+def load_cache():
+    if not os.path.exists(CACHE_FILE): return {}
+    try:
+        with open(CACHE_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def save_cache(cache: dict):
+    # trim if too large (keep most recent by fetched_at)
+    if len(cache) > CACHE_MAX_ENTRIES:
+        items = sorted(cache.items(), key=lambda kv: kv[1].get("fetched_at",""), reverse=True)[:CACHE_MAX_ENTRIES]
+        cache = dict(items)
+    with open(CACHE_FILE, "w", encoding="utf-8") as f:
+        json.dump(cache, f, indent=2, ensure_ascii=False)
+    return cache
+
+def cache_get(cache, url, tz):
+    entry = cache.get(url)
+    if not entry: return None
+    fetched_at = entry.get("fetched_at")
+    try:
+        dt = dtparser.parse(fetched_at) if fetched_at else None
+    except Exception:
+        dt = None
+    if dt and (datetime.now(tz) - dt) <= timedelta(days=CACHE_STALE_DAYS):
+        return entry.get("content_html")
+    return None
+
+def cache_put(cache, url, content_html, tz):
+    cache[url] = {"content_html": content_html, "fetched_at": datetime.now(tz).isoformat()}
+
+# ---- Filtering (last 24h + undated) -----------------------------------------
 def normalize_and_filter(all_items, tz):
     seen = set(); deduped = []
     for it in all_items:
@@ -298,105 +281,83 @@ def normalize_and_filter(all_items, tz):
         it["summary"] = strip_ws(it.get("summary"))
         deduped.append(it)
 
-    now = datetime.now(tz)
-    cutoff = now - timedelta(hours=24)
-
+    now = datetime.now(tz); cutoff = now - timedelta(hours=24)
     keep = []
     for it in deduped:
         iso = it.get("published_at")
-        if not iso:
-            keep.append(it); continue
+        if not iso: keep.append(it); continue
         try:
             dt = dtparser.parse(iso)
             if dt.tzinfo is None: dt = tz.localize(dt)
             dt = dt.astimezone(tz)
         except Exception:
             keep.append(it); continue
-        if dt >= cutoff:
-            keep.append(it)
-    return keep
+        if dt >= cutoff: keep.append(it)
+    return keep[:MAX_ARTICLES_TOTAL]
 
-# --- Unified RSS ---------------------------------------------------------------
-def generate_unified_rss(items, tz, site_title="AU Gov Announcements (Daily)"):
-    from xml.sax.saxutils import escape
-    now = datetime.now(tz).strftime("%a, %d %b %Y %H:%M:%S %z")
-    rss = [
-        '<?xml version="1.0" encoding="UTF-8"?>',
-        '<rss version="2.0">', '<channel>',
-        f"<title>{escape(site_title)}</title>",
-        "<link>https://example.com/</link>",
-        "<description>Unified feed generated daily</description>",
-        f"<lastBuildDate>{now}</lastBuildDate>",
-    ]
-    for it in items[:200]:
-        title = escape(it.get("title") or "")
-        link = escape(it.get("url") or "")
-        desc = escape(it.get("summary") or "")
-        pub = it.get("published_at")
-        if pub:
-            try:
-                dt = dtparser.parse(pub)
-                if dt.tzinfo is None: dt = pytz.UTC.localize(dt)
-                pubDate = dt.strftime("%a, %d %b %Y %H:%M:%S %z")
-            except Exception:
-                pubDate = now
-        else:
-            pubDate = now
-        guid = make_id(it.get("url") or (it.get("title","") + pubDate))
-        rss.extend([
-            "<item>",
-            f"<title>{title}</title>",
-            f"<link>{link}</link>",
-            f"<guid isPermaLink='false'>{guid}</guid>",
-            f"<pubDate>{pubDate}</pubDate>",
-            f"<description>{desc}</description>" if desc else "",
-            "</item>"
-        ])
-    rss.extend(["</channel>", "</rss>"])
-    return "\n".join(x for x in rss if x)
-
-# --- Main ----------------------------------------------------------------------
+# ---- Main --------------------------------------------------------------------
 def main():
     tz, sources = load_sources()
-    errors = []
-    collected = []
+    errors, collected = [], []
+    cache = load_cache()
 
-    print(f"Loaded {len(sources)} sources")
+    print(f"Loaded {len(sources)} sources; cache entries: {len(cache)}")
 
-    # Phase 1: collect items
+    # Collect items
     for src in sources:
         name, items, err = fetch_source(src, tz)
         if err:
             errors.append({"source": name, "error": err})
             print(f"[WARN] {name}: {err}")
-        for it in items:
-            it["source"] = name
+        for it in items: it["source"] = name
         collected.extend(items)
 
-    # Phase 2: filter window
     kept = normalize_and_filter(collected, tz)
 
-    # Phase 3: fetch & clean full content
-    MAX_ARTICLES = 60
-    fetched = 0
+    # Decide what needs fetching
+    to_fetch = []
     for it in kept:
-        if fetched >= MAX_ARTICLES: break
         url = it.get("url")
         if not url: continue
-        if not robots_can_fetch(url): continue
+        cached = cache_get(cache, url, tz)
+        if cached:
+            it["content_html"] = cached
+            if not it.get("summary"):
+                text = strip_ws(BeautifulSoup(cached, "html.parser").get_text())
+                it["summary"] = text[:280]
+        else:
+            if robots_can_fetch(url):
+                to_fetch.append(it)
+    to_fetch = to_fetch[:MAX_NEW_FETCHES]
+
+    # Parallel fetch for new URLs
+    def worker(item):
         try:
-            resp = fetch_url(url, timeout=25)
-            content_html = extract_main_content(resp.text, url)
-            if content_html:
-                it["content_html"] = truncate_html(content_html, max_chars=8000)
-                if not it.get("summary"):
-                    text = strip_ws(BeautifulSoup(it["content_html"], "html.parser").get_text())
-                    it["summary"] = text[:280]
-                fetched += 1
-                time.sleep(0.4)  # gentle
+            r = fetch_url(item["url"]); r.raise_for_status()
+            html = extract_main_content(r.text, item["url"])
+            if html:
+                html = truncate_html(html)
+                return (item["url"], html, None)
+            return (item["url"], "", None)
         except Exception as e:
-            errors.append({"source": it.get("source","?"), "url": url, "error": f"{type(e).__name__}: {e}"})
-            continue
+            return (item["url"], "", f"{type(e).__name__}: {e}")
+
+    if to_fetch:
+        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
+            futures = {ex.submit(worker, it): it for it in to_fetch}
+            for fut in as_completed(futures):
+                u, html, err = fut.result()
+                it = futures[fut]
+                if err:
+                    errors.append({"source": it.get("source","?"), "url": u, "error": err})
+                    continue
+                if html:
+                    it["content_html"] = html
+                    # derive summary if missing
+                    if not it.get("summary"):
+                        text = strip_ws(BeautifulSoup(html, "html.parser").get_text())
+                        it["summary"] = text[:280]
+                    cache_put(cache, u, html, tz)
 
     # Sort newest first
     def sort_key(it):
@@ -410,7 +371,7 @@ def main():
             return datetime.fromtimestamp(0, tz)
     kept.sort(key=sort_key, reverse=True)
 
-    # Write files
+    # Write data files
     now = datetime.now(tz)
     date_str = now.strftime("%Y-%m-%d")
     daily_path = os.path.join(DATA_DIR, f"{date_str}.json")
@@ -431,11 +392,29 @@ def main():
     with open(latest_path, "w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2, ensure_ascii=False)
 
-    rss_text = generate_unified_rss(kept, tz)
-    with open(rss_path, "w", encoding="utf-8") as f:
-        f.write(rss_text)
+    # Save/update cache (after writing data so a failure here won't block)
+    save_cache(cache)
 
-    print(f"Wrote {len(kept)} items → {latest_path} (content fetched for ~{fetched})")
+    # Minimal unified RSS
+    def rss(items):
+        from xml.sax.saxutils import escape
+        nowh = now.strftime("%a, %d %b %Y %H:%M:%S %z")
+        out = ['<?xml version="1.0" encoding="UTF-8"?>','<rss version="2.0">','<channel>',
+               "<title>AU Gov Announcements (Daily)</title>","<link>https://example.com/</link>",
+               "<description>Unified feed generated daily</description>",f"<lastBuildDate>{nowh}</lastBuildDate>"]
+        for it in items[:200]:
+            t = escape(it.get("title") or ""); l = escape(it.get("url") or "")
+            d = escape(it.get("summary") or ""); pub = it.get("published_at") or now.isoformat()
+            guid = make_id(it.get("url") or (t+pub))
+            out += ["<item>",f"<title>{t}</title>",f"<link>{l}</link>",
+                    f"<guid isPermaLink='false'>{guid}</guid>",f"<pubDate>{nowh}</pubDate>",
+                    f"<description>{d}</description>" if d else "", "</item>"]
+        out += ["</channel>","</rss>"]
+        return "\n".join(x for x in out if x)
+    with open(rss_path, "w", encoding="utf-8") as f:
+        f.write(rss(kept))
+
+    print(f"Wrote {len(kept)} items → {latest_path} (new content fetched: {len(to_fetch)})")
     if errors:
         print("Source/content errors:")
         for e in errors:
