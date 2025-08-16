@@ -53,3 +53,22 @@ pre {
 }
 
 .error-card { border-color: #ffd7d7; background: #fff6f6; }
+
+
+/* Hide interactive UI that may slip into extracted content */
+.content nav,
+.content header,
+.content footer,
+.content aside,
+.content form,
+.content button,
+.content input,
+.content select,
+.content textarea,
+.content label { display: none !important; }
+
+/* Big link-only blocks (menus) often look like dense lists; soften them */
+.content ul, .content ol {
+  margin: .4rem 0 .4rem 1.2rem;
+}
+
