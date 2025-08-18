@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# scripts/fetch.py — faster via (a) content cache (b) small parallel fetch
+# scripts/fetch.py — fast fetcher with cache + parallel content extraction
 
 import json, os, re, hashlib, time, sys, argparse, gc
 import logging
@@ -26,19 +26,19 @@ except ImportError:
 
 # ------------ Tunables ---------------------------------------------------------
 MAX_ARTICLES_TOTAL = 120
-MAX_NEW_FETCHES = 30
-MAX_WORKERS = 5                 # be polite to origin sites
-FETCH_TIMEOUT = 20
-CACHE_MAX_ENTRIES = 3000
-CACHE_STALE_DAYS = 14
+MAX_NEW_FETCHES    = 30
+MAX_WORKERS        = 5                 # be polite to origin sites
+FETCH_TIMEOUT      = 20
+CACHE_MAX_ENTRIES  = 3000
+CACHE_STALE_DAYS   = 14
 MEMORY_WARNING_THRESHOLD = 500  # MB
 # ------------------------------------------------------------------------------
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DATA_DIR = os.path.join(ROOT, "web", "data")
+ROOT         = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DATA_DIR     = os.path.join(ROOT, "web", "data")
 os.makedirs(DATA_DIR, exist_ok=True)
 SOURCES_FILE = os.path.join(ROOT, "sources.yaml")
-CACHE_FILE = os.path.join(DATA_DIR, "content_cache.json")
+CACHE_FILE   = os.path.join(DATA_DIR, "content_cache.json")
 
 USER_AGENT = "AusGovAnnouncementsBot/1.0 (+https://github.com/yourusername/yourrepo)"
 SESSION = requests.Session()
@@ -201,8 +201,7 @@ def find_feed_links(html, base_url):
         seen, unique = set(), []
         for u in feeds:
             if u not in seen:
-                unique.append(u)
-                seen.add(u)
+                unique.append(u); seen.add(u)
         if logger: logger.debug(f"Found {len(unique)} potential feeds for {base_url}")
         return unique
     except Exception as e:
@@ -584,9 +583,9 @@ def main():
         # Write JSON
         now = datetime.now(tz)
         date_str = now.strftime("%Y-%m-%d")
-        daily_path = os.path.join(DATA_DIR, f"{date_str}.json")
+        daily_path  = os.path.join(DATA_DIR, f"{date_str}.json")
         latest_path = os.path.join(DATA_DIR, "latest.json")
-        rss_path = os.path.join(DATA_DIR, "unified.xml")
+        rss_path    = os.path.join(DATA_DIR, "unified.xml")
 
         payload = {
             "date": date_str,
@@ -602,7 +601,7 @@ def main():
                 json.dump(payload, f, indent=2, ensure_ascii=False)
             if logger: logger.debug(f"Written {path}")
 
-        # RSS
+        # RSS (standalone, no stray try:)
         def generate_rss(items):
             from xml.sax.saxutils import escape
             last_build = now.strftime("%a, %d %b %Y %H:%M:%S %z")
@@ -616,7 +615,35 @@ def main():
             ]
             for it in items[:200]:
                 title = escape(it.get("title") or "")
-                link = escape(it.get("url") or "")
-                description = escape(it.get("summary") or "")
+                link  = escape(it.get("url") or "")
+                desc  = escape(it.get("summary") or "")
                 pub_date = format_rss_date(it.get("published_at"), tz)
                 guid = make_id(it.get("url") or (title + pub_date))
+                out += [
+                    "<item>",
+                    f"<title>{title}</title>",
+                    f"<link>{link}</link>",
+                    f"<guid isPermaLink='false'>{guid}</guid>",
+                    f"<pubDate>{pub_date}</pubDate>",
+                    f"<description>{desc}</description>" if desc else "",
+                    "</item>"
+                ]
+            out += ["</channel>", "</rss>"]
+            return "\n".join(x for x in out if x)
+
+        with open(rss_path, "w", encoding="utf-8") as f:
+            f.write(generate_rss(kept))
+
+        # Save cache & stats
+        save_cache(cache)
+        log_performance_stats(kept, cache, errors, start_time)
+
+        if logger: logger.info(f"Wrote {len(kept)} items → {latest_path}")
+
+    except Exception as e:
+        _le(f"UNHANDLED ERROR: {e}")
+        # If you *want* the workflow to fail on fatal errors, uncomment:
+        # sys.exit(1)
+
+if __name__ == "__main__":
+    main()
