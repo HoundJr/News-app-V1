@@ -1,54 +1,16 @@
 timezone: Australia/Brisbane
 
-# Tip: start with a handful, then expand.
-# The fetcher will try to autodetect RSS/Atom from each page.
-# If it can't, it will fall back to scraping with the provided CSS selector (if any).
-
 sources:
-  - name: Digital Transformation Agency
-    feed: https://www.dta.gov.au/news-and-blogs/latest/feed/all
-    selector: article a 
-
-  - name: Department of Finance
-    homepage: https://www.finance.gov.au/about-us/news
-    selector: article a
-
-  - name: Department of Health and Aged Care
-    homepage: https://www.health.gov.au/news
-    selector: article a
-
-  - name: Border Force
-    feed: "https://www.abf.gov.au/_layouts/15/AppPages/Rss.aspx?site=newsroom"
-    selector: a
-
-  - name: Department of Climate Change, Energy, the Environment and Water
-    homepage: https://www.dcceew.gov.au/news
-    selector: article a
-
-  - name: Department of Infrastructure, Transport, Regional Development, Communications and the Arts
-    homepage: https://www.infrastructure.gov.au/media
-    selector: article a
-
-  - name: Department of Education
-    homepage: https://www.education.gov.au/news
-    selector: article a
-
-  - name: Department of Employment and Workplace Relations
-    homepage: https://www.dewr.gov.au/newsroom
-    selector: article a
-
+  - name: Australian Border Force
+    feed: "https://www.abf.gov.au/_layouts/15/AppPages/Rss.aspx?site=newsroom"   # ABF newsroom RSS
   - name: Department of Social Services
-    homepage: https://www.dss.gov.au/about-the-department/news
-    selector: article a
-
-  - name: Australian Taxation Office
-    homepage: https://www.ato.gov.au/Media-centre/
-    selector: a
-
-  - name: Australian Securities & Investments Commission (ASIC)
-    homepage: https://www.asic.gov.au/newsroom/media-releases/
-    selector: a
-
+    feed: "https://www.dss.gov.au/rss/updates.xml"                               # DSS site updates RSS
+  - name: Department of Employment and Workplace Relations (DEWR)
+    homepage: "https://www.dewr.gov.au/newsroom"
+    selector: "a[href^='/newsroom/'], a[href*='/newsroom/']"
+    timeout: 45                                                                   # give this one longer
+  - name: Australian Taxation Office (ATO)
+    feed: "https://www.ato.gov.au/rss/media-centre.xml"                           # official media centre RSS
   - name: Australian Competition & Consumer Commission (ACCC)
-    homepage: https://www.accc.gov.au/media/media-releases
-    selector: a
+    homepage: "https://www.accc.gov.au/about-us/news"                             # new news hub
+    selector: "a[href*='/media-release/'], a[href*='/speech/']"
