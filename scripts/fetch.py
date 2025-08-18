@@ -252,7 +252,8 @@ def fetch_source(src, tz):
         if feed_override:
             if logger: logger.debug(f"Using direct feed: {feed_override}")
             items = []
-            parsed = feedparser.parse(feed_override)
+            resp = fetch_url(feed_override); resp.raise_for_status()
+            parsed = feedparser.parse(resp.content)
             if getattr(parsed, "bozo", False) and getattr(parsed, "bozo_exception", None):
                 _lw(f"Feed parsing warning for {name}: {parsed.bozo_exception}")
             for e in parsed.entries[:80]:
@@ -281,7 +282,8 @@ def fetch_source(src, tz):
             items = []
             for feed_url in feed_links[:2]:
                 try:
-                    parsed = feedparser.parse(feed_url)
+                    resp = fetch_url(feed_url); resp.raise_for_status()
+                    parsed = feedparser.parse(resp.content)
                     if getattr(parsed, "bozo", False) and getattr(parsed, "bozo_exception", None):
                         _lw(f"Feed parsing warning for {feed_url}: {parsed.bozo_exception}")
                     for e in parsed.entries[:80]:
