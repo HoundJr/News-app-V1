@@ -18,7 +18,7 @@ sources:
     selector: article a
 
   - name: Border Force
-    homepage: https://www.abf.gov.au/sitenewsroom
+    feed: "https://www.abf.gov.au/_layouts/15/AppPages/Rss.aspx?site=newsroom"
     selector: a
 
   - name: Department of Climate Change, Energy, the Environment and Water
