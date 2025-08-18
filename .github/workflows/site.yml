@@ -33,6 +33,8 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Run fetcher
+        env:
+          RECENT_HOURS: "4320"   # 180 days
         run: python scripts/fetch.py
 
       - name: Commit data (if changed)
