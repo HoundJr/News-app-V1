@@ -3,14 +3,25 @@ timezone: Australia/Brisbane
 sources:
   - name: Australian Border Force
     feed: "https://www.abf.gov.au/_layouts/15/AppPages/Rss.aspx?site=newsroom"   # ABF newsroom RSS
+ 
   - name: Department of Social Services
     feed: "https://www.dss.gov.au/rss/updates.xml"                               # DSS site updates RSS
+ 
   - name: Department of Employment and Workplace Relations (DEWR)
     homepage: "https://www.dewr.gov.au/newsroom"
     selector: "a[href^='/newsroom/'], a[href*='/newsroom/']"
     timeout: 45                                                                   # give this one longer
+ 
   - name: Australian Taxation Office (ATO)
-    feed: "https://www.ato.gov.au/rss/media-centre.xml"                           # official media centre RSS
+    feed: "https://www.ato.gov.au/rss/media-centre.xml"
+    user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    headers:
+      Referer: "https://www.ato.gov.au/Media-centre"
+      Accept: "application/rss+xml, text/xml;q=0.9, */*;q=0.8"
+    feed_timeout: 45
+    recent_hours: 8760
+    min_keep: 5
+
   - name: Australian Competition & Consumer Commission (ACCC)
     homepage: "https://www.accc.gov.au/about-us/news"                             # new news hub
     selector: "a[href*='/media-release/'], a[href*='/speech/']"
