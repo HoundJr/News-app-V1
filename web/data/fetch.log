@@ -131,3 +131,67 @@
 2025-08-18 09:05:32,980 - INFO - Cache hits: 13, New fetches needed: 0
 2025-08-18 09:05:32,982 - INFO - Performance stats: {'articles_collected': 16, 'cache_entries': 31, 'errors': 10, 'execution_time': 740.77}
 2025-08-18 09:05:32,982 - INFO - Wrote 16 items → /home/runner/work/News-app-V1/News-app-V1/web/data/latest.json
+2025-08-18 09:10:32,299 - INFO - === Starting Australian Government News Fetch ===
+2025-08-18 09:10:32,313 - INFO - Loaded 12 sources from /home/runner/work/News-app-V1/News-app-V1/sources.yaml
+2025-08-18 09:10:32,313 - INFO - Loaded cache with 31 entries
+2025-08-18 09:10:32,313 - INFO - Loaded 12 sources; cache entries: 31
+2025-08-18 09:10:32,313 - INFO - Processing source: Digital Transformation Agency
+2025-08-18 09:15:17,983 - ERROR - Source processing failed for Digital Transformation Agency: RemoteDisconnected: Remote end closed connection without response
+2025-08-18 09:15:17,984 - WARNING - Source error for Digital Transformation Agency: RemoteDisconnected: Remote end closed connection without response
+2025-08-18 09:15:17,984 - INFO - Processing source: Department of Finance
+2025-08-18 09:15:39,014 - WARNING - Attempt 1 failed, retrying in 1s: HTTPSConnectionPool(host='www.finance.gov.au', port=443): Read timed out. (read timeout=20)
+2025-08-18 09:16:00,882 - WARNING - Attempt 2 failed, retrying in 2s: HTTPSConnectionPool(host='www.finance.gov.au', port=443): Read timed out. (read timeout=20)
+2025-08-18 09:16:23,019 - ERROR - Failed after 3 attempts: HTTPSConnectionPool(host='www.finance.gov.au', port=443): Read timed out. (read timeout=20)
+2025-08-18 09:16:23,019 - ERROR - Source processing failed for Department of Finance: ReadTimeout: HTTPSConnectionPool(host='www.finance.gov.au', port=443): Read timed out. (read timeout=20)
+2025-08-18 09:16:23,019 - WARNING - Source error for Department of Finance: ReadTimeout: HTTPSConnectionPool(host='www.finance.gov.au', port=443): Read timed out. (read timeout=20)
+2025-08-18 09:16:23,019 - INFO - Processing source: Department of Health and Aged Care
+2025-08-18 09:16:43,528 - WARNING - Attempt 1 failed, retrying in 1s: HTTPSConnectionPool(host='www.health.gov.au', port=443): Read timed out. (read timeout=20)
+2025-08-18 09:17:05,357 - WARNING - Attempt 2 failed, retrying in 2s: HTTPSConnectionPool(host='www.health.gov.au', port=443): Read timed out. (read timeout=20)
+2025-08-18 09:17:27,757 - ERROR - Failed after 3 attempts: HTTPSConnectionPool(host='www.health.gov.au', port=443): Read timed out. (read timeout=20)
+2025-08-18 09:17:27,757 - ERROR - Source processing failed for Department of Health and Aged Care: ReadTimeout: HTTPSConnectionPool(host='www.health.gov.au', port=443): Read timed out. (read timeout=20)
+2025-08-18 09:17:27,757 - WARNING - Source error for Department of Health and Aged Care: ReadTimeout: HTTPSConnectionPool(host='www.health.gov.au', port=443): Read timed out. (read timeout=20)
+2025-08-18 09:17:27,757 - INFO - Processing source: Border Force
+2025-08-18 09:17:28,808 - INFO - Fetched 80 items from feed for Border Force
+2025-08-18 09:17:28,809 - INFO - Processing source: Department of Climate Change, Energy, the Environment and Water
+2025-08-18 09:17:49,474 - WARNING - Attempt 1 failed, retrying in 1s: HTTPSConnectionPool(host='www.dcceew.gov.au', port=443): Read timed out. (read timeout=20)
+2025-08-18 09:18:11,091 - WARNING - Attempt 2 failed, retrying in 2s: HTTPSConnectionPool(host='www.dcceew.gov.au', port=443): Read timed out. (read timeout=20)
+2025-08-18 09:18:33,663 - ERROR - Failed after 3 attempts: HTTPSConnectionPool(host='www.dcceew.gov.au', port=443): Read timed out. (read timeout=20)
+2025-08-18 09:18:33,663 - ERROR - Source processing failed for Department of Climate Change, Energy, the Environment and Water: ReadTimeout: HTTPSConnectionPool(host='www.dcceew.gov.au', port=443): Read timed out. (read timeout=20)
+2025-08-18 09:18:33,663 - WARNING - Source error for Department of Climate Change, Energy, the Environment and Water: ReadTimeout: HTTPSConnectionPool(host='www.dcceew.gov.au', port=443): Read timed out. (read timeout=20)
+2025-08-18 09:18:33,663 - INFO - Processing source: Department of Infrastructure, Transport, Regional Development, Communications and the Arts
+2025-08-18 09:18:54,071 - WARNING - Attempt 1 failed, retrying in 1s: HTTPSConnectionPool(host='www.infrastructure.gov.au', port=443): Read timed out. (read timeout=20)
+2025-08-18 09:19:15,963 - WARNING - Attempt 2 failed, retrying in 2s: HTTPSConnectionPool(host='www.infrastructure.gov.au', port=443): Read timed out. (read timeout=20)
+2025-08-18 09:19:38,659 - ERROR - Failed after 3 attempts: HTTPSConnectionPool(host='www.infrastructure.gov.au', port=443): Read timed out. (read timeout=20)
+2025-08-18 09:19:38,659 - ERROR - Source processing failed for Department of Infrastructure, Transport, Regional Development, Communications and the Arts: ReadTimeout: HTTPSConnectionPool(host='www.infrastructure.gov.au', port=443): Read timed out. (read timeout=20)
+2025-08-18 09:19:38,659 - WARNING - Source error for Department of Infrastructure, Transport, Regional Development, Communications and the Arts: ReadTimeout: HTTPSConnectionPool(host='www.infrastructure.gov.au', port=443): Read timed out. (read timeout=20)
+2025-08-18 09:19:38,659 - INFO - Processing source: Department of Education
+2025-08-18 09:19:59,420 - WARNING - Attempt 1 failed, retrying in 1s: HTTPSConnectionPool(host='www.education.gov.au', port=443): Read timed out. (read timeout=20)
+2025-08-18 09:20:21,167 - WARNING - Attempt 2 failed, retrying in 2s: HTTPSConnectionPool(host='www.education.gov.au', port=443): Read timed out. (read timeout=20)
+2025-08-18 09:20:43,605 - ERROR - Failed after 3 attempts: HTTPSConnectionPool(host='www.education.gov.au', port=443): Read timed out. (read timeout=20)
+2025-08-18 09:20:43,605 - ERROR - Source processing failed for Department of Education: ReadTimeout: HTTPSConnectionPool(host='www.education.gov.au', port=443): Read timed out. (read timeout=20)
+2025-08-18 09:20:43,605 - WARNING - Source error for Department of Education: ReadTimeout: HTTPSConnectionPool(host='www.education.gov.au', port=443): Read timed out. (read timeout=20)
+2025-08-18 09:20:43,605 - INFO - Processing source: Department of Employment and Workplace Relations
+2025-08-18 09:21:04,248 - WARNING - Attempt 1 failed, retrying in 1s: HTTPSConnectionPool(host='www.dewr.gov.au', port=443): Read timed out. (read timeout=20)
+2025-08-18 09:21:25,847 - WARNING - Attempt 2 failed, retrying in 2s: HTTPSConnectionPool(host='www.dewr.gov.au', port=443): Read timed out. (read timeout=20)
+2025-08-18 09:21:48,278 - ERROR - Failed after 3 attempts: HTTPSConnectionPool(host='www.dewr.gov.au', port=443): Read timed out. (read timeout=20)
+2025-08-18 09:21:48,278 - ERROR - Source processing failed for Department of Employment and Workplace Relations: ReadTimeout: HTTPSConnectionPool(host='www.dewr.gov.au', port=443): Read timed out. (read timeout=20)
+2025-08-18 09:21:48,278 - WARNING - Source error for Department of Employment and Workplace Relations: ReadTimeout: HTTPSConnectionPool(host='www.dewr.gov.au', port=443): Read timed out. (read timeout=20)
+2025-08-18 09:21:48,278 - INFO - Processing source: Department of Social Services
+2025-08-18 09:22:08,659 - WARNING - Attempt 1 failed, retrying in 1s: HTTPSConnectionPool(host='www.dss.gov.au', port=443): Read timed out. (read timeout=20)
+2025-08-18 09:22:30,039 - WARNING - Attempt 2 failed, retrying in 2s: HTTPSConnectionPool(host='www.dss.gov.au', port=443): Read timed out. (read timeout=20)
+2025-08-18 09:22:52,430 - ERROR - Failed after 3 attempts: HTTPSConnectionPool(host='www.dss.gov.au', port=443): Read timed out. (read timeout=20)
+2025-08-18 09:22:52,430 - ERROR - Source processing failed for Department of Social Services: ReadTimeout: HTTPSConnectionPool(host='www.dss.gov.au', port=443): Read timed out. (read timeout=20)
+2025-08-18 09:22:52,430 - WARNING - Source error for Department of Social Services: ReadTimeout: HTTPSConnectionPool(host='www.dss.gov.au', port=443): Read timed out. (read timeout=20)
+2025-08-18 09:22:52,430 - INFO - Processing source: Australian Taxation Office
+2025-08-18 09:22:52,750 - ERROR - Source processing failed for Australian Taxation Office: HTTPError: 403 Client Error: Forbidden for url: https://www.ato.gov.au/Media-centre/
+2025-08-18 09:22:52,750 - WARNING - Source error for Australian Taxation Office: HTTPError: 403 Client Error: Forbidden for url: https://www.ato.gov.au/Media-centre/
+2025-08-18 09:22:52,750 - INFO - Processing source: Australian Securities & Investments Commission (ASIC)
+2025-08-18 09:22:54,124 - INFO - Scraped 20 items from HTML for Australian Securities & Investments Commission (ASIC)
+2025-08-18 09:22:54,125 - INFO - Processing source: Australian Competition & Consumer Commission (ACCC)
+2025-08-18 09:22:55,448 - ERROR - Source processing failed for Australian Competition & Consumer Commission (ACCC): HTTPError: 404 Client Error: Not Found for url: https://www.accc.gov.au/media/media-releases
+2025-08-18 09:22:55,449 - WARNING - Source error for Australian Competition & Consumer Commission (ACCC): HTTPError: 404 Client Error: Not Found for url: https://www.accc.gov.au/media/media-releases
+2025-08-18 09:22:55,450 - INFO - After deduplication: 96 items
+2025-08-18 09:22:55,455 - INFO - After filtering (last 24h + undated): 16 items
+2025-08-18 09:22:56,009 - INFO - Cache hits: 13, New fetches needed: 0
+2025-08-18 09:22:56,012 - INFO - Performance stats: {'articles_collected': 16, 'cache_entries': 31, 'errors': 10, 'execution_time': 743.71}
+2025-08-18 09:22:56,012 - INFO - Wrote 16 items → /home/runner/work/News-app-V1/News-app-V1/web/data/latest.json
