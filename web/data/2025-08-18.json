@@ -1,7 +1,7 @@
 {
   "date": "2025-08-18",
   "timezone": "Australia/Brisbane",
-  "generated_at": "2025-08-18T19:22:56.009942+10:00",
+  "generated_at": "2025-08-18T19:42:16.353749+10:00",
   "count": 16,
   "items": [
     {
@@ -133,7 +133,7 @@
   "errors": [
     {
       "source": "Digital Transformation Agency",
-      "error": "RemoteDisconnected: Remote end closed connection without response"
+      "error": "ReadTimeout: HTTPSConnectionPool(host='www.dta.gov.au', port=443): Read timed out. (read timeout=20)"
     },
     {
       "source": "Department of Finance",
