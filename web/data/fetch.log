@@ -387,3 +387,27 @@
 2025-08-18 23:31:32,317 - INFO - Starting parallel content fetch for 30 URLs
 2025-08-18 23:31:36,349 - INFO - Performance stats: {'articles_collected': 80, 'cache_entries': 36, 'errors': 3, 'execution_time': 213.59}
 2025-08-18 23:31:36,349 - INFO - Wrote 80 items → /home/runner/work/News-app-V1/News-app-V1/web/data/latest.json
+2025-08-19 00:04:33,950 - INFO - === Starting Australian Government News Fetch ===
+2025-08-19 00:04:33,962 - INFO - Loaded 5 sources from /home/runner/work/News-app-V1/News-app-V1/sources.yaml
+2025-08-19 00:04:33,962 - INFO - No existing cache file found, starting fresh
+2025-08-19 00:04:33,962 - INFO - Loaded 5 sources; cache entries: 0
+2025-08-19 00:04:33,962 - INFO - Processing source: Australian Border Force
+2025-08-19 00:04:33,963 - ERROR - Source processing failed for Australian Border Force: NameError: name '_get' is not defined
+2025-08-19 00:04:33,963 - WARNING - Source error for Australian Border Force: NameError: name '_get' is not defined
+2025-08-19 00:04:33,963 - INFO - Processing source: Department of Social Services
+2025-08-19 00:04:33,963 - ERROR - Source processing failed for Department of Social Services: NameError: name '_get' is not defined
+2025-08-19 00:04:33,963 - WARNING - Source error for Department of Social Services: NameError: name '_get' is not defined
+2025-08-19 00:04:33,963 - INFO - Processing source: Department of Employment and Workplace Relations (DEWR)
+2025-08-19 00:04:33,963 - ERROR - Source processing failed for Department of Employment and Workplace Relations (DEWR): NameError: name '_get' is not defined
+2025-08-19 00:04:33,963 - WARNING - Source error for Department of Employment and Workplace Relations (DEWR): NameError: name '_get' is not defined
+2025-08-19 00:04:33,963 - INFO - Processing source: Australian Taxation Office (ATO)
+2025-08-19 00:04:33,963 - ERROR - Source processing failed for Australian Taxation Office (ATO): NameError: name '_get' is not defined
+2025-08-19 00:04:33,963 - WARNING - Source error for Australian Taxation Office (ATO): NameError: name '_get' is not defined
+2025-08-19 00:04:33,963 - INFO - Processing source: Australian Competition & Consumer Commission (ACCC)
+2025-08-19 00:04:33,963 - ERROR - Source processing failed for Australian Competition & Consumer Commission (ACCC): NameError: name '_get' is not defined
+2025-08-19 00:04:33,963 - WARNING - Source error for Australian Competition & Consumer Commission (ACCC): NameError: name '_get' is not defined
+2025-08-19 00:04:33,963 - INFO - After deduplication: 0 items
+2025-08-19 00:04:33,963 - INFO - After filtering (≤4320h + undated): 0 items
+2025-08-19 00:04:33,963 - INFO - Cache hits: 0, New fetches needed: 0
+2025-08-19 00:04:33,964 - INFO - Performance stats: {'articles_collected': 0, 'cache_entries': 0, 'errors': 5, 'execution_time': 0.01}
+2025-08-19 00:04:33,964 - INFO - Wrote 0 items → /home/runner/work/News-app-V1/News-app-V1/web/data/latest.json
