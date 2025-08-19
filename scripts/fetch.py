@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 # scripts/fetch.py — fast fetcher with cache + parallel content extraction
-# Changes in this version:
-#  - Feeds are fetched with requests (custom UA), then parsed from bytes.
-#  - Per-source timeouts: "timeout" and "feed_timeout" in sources.yaml.
-#  - Recent window is configurable via RECENT_HOURS env var (default 168h).
+# Key features:
+#  - Per-source UA/headers + timeouts (user_agent, headers, timeout, feed_timeout)
+#  - Feeds fetched with headers, parsed from bytes (fixes ABF/DSS/ATO)
+#  - ATO feed 403 → graceful fallback to listing scrape
+#  - Per-source recent windows (recent_hours) + min_keep top-up
+#  - Logging, retry/backoff, cache, parallel fetch, HTML pruning, RSS
 
 import json, os, re, hashlib, time, sys, argparse, gc
 import logging
@@ -32,10 +34,13 @@ except ImportError:
 MAX_ARTICLES_TOTAL = 120
 MAX_NEW_FETCHES    = 30
 MAX_WORKERS        = 5                 # be polite to origin sites
-FETCH_TIMEOUT      = 20                # default timeout (seconds) unless overridden per source
+FETCH_TIMEOUT      = 20                # default unless overridden per source
 CACHE_MAX_ENTRIES  = 3000
 CACHE_STALE_DAYS   = 14
 MEMORY_WARNING_THRESHOLD = 500  # MB
+
+# Default recency window (can be overridden via env or per-source)
+DEFAULT_RECENT_HOURS = int(os.environ.get("RECENT_HOURS", "168"))  # 7 days
 # ------------------------------------------------------------------------------
 
 ROOT         = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -44,7 +49,7 @@ os.makedirs(DATA_DIR, exist_ok=True)
 SOURCES_FILE = os.path.join(ROOT, "sources.yaml")
 CACHE_FILE   = os.path.join(DATA_DIR, "content_cache.json")
 
-USER_AGENT = "AusGovAnnouncementsBot/1.1 (+https://github.com/yourusername/yourrepo)"
+USER_AGENT = "AusGovAnnouncementsBot/1.2 (+https://github.com/yourusername/yourrepo)"
 SESSION = requests.Session()
 SESSION.headers.update({
     "User-Agent": USER_AGENT,
@@ -87,7 +92,7 @@ def log_memory_usage(stage):
     except Exception as e:
         if logger: logger.debug(f"Memory monitoring failed: {e}")
 
-# -------------------- Helpers --------------------------------------------------
+# -------------------- HTTP helpers --------------------------------------------
 def retry(max_attempts=3, delay=1):
     def decorator(func):
         @wraps(func)
@@ -104,6 +109,26 @@ def retry(max_attempts=3, delay=1):
                     time.sleep(wait)
         return wrapper
     return decorator
+
+@retry(max_attempts=3)
+def fetch_url(url, timeout=FETCH_TIMEOUT):
+    """Generic GET using the default session headers (used by content workers)."""
+    return requests.get(url, headers=SESSION.headers, timeout=timeout)
+
+def _get(url, timeout, ua=None, extra_headers=None):
+    """GET with optional per-source UA and headers."""
+    headers = dict(SESSION.headers)
+    if ua:
+        headers["User-Agent"] = ua
+    if extra_headers:
+        headers.update({k: str(v) for k, v in extra_headers.items()})
+    return requests.get(url, headers=headers, timeout=timeout)
+
+def _parse_feed_with_headers(url, timeout, ua=None, extra_headers=None):
+    """Fetch feed with our UA/headers, then parse from bytes."""
+    resp = _get(url, timeout=timeout, ua=ua, extra_headers=extra_headers)
+    resp.raise_for_status()
+    return feedparser.parse(resp.content)
 
 def robots_can_fetch(url: str) -> bool:
     try:
@@ -122,11 +147,12 @@ def robots_can_fetch(url: str) -> bool:
             ROBOTS_CACHE[base] = rp
         if rp is None:
             return True
-        return rp.can_fetch(USER_AGENT, p.path or "/")
+        return rp.can_fetch(SESSION.headers.get("User-Agent", USER_AGENT), p.path or "/")
     except Exception as e:
         if logger: logger.debug(f"Robots check failed for {url}: {e}")
         return True
 
+# -------------------- Config & utils ------------------------------------------
 def load_sources(sources_file=None):
     path = sources_file or SOURCES_FILE
     if not os.path.exists(path):
@@ -181,10 +207,6 @@ def format_rss_date(iso_date, tz):
     except Exception as e:
         if logger: logger.debug(f"Date parsing failed for {iso_date}: {e}")
         return datetime.now(tz).strftime("%a, %d %b %Y %H:%M:%S %z")
-
-@retry(max_attempts=3)
-def fetch_url(url, timeout=FETCH_TIMEOUT):
-    return requests.get(url, headers=SESSION.headers, timeout=timeout)
 
 def find_feed_links(html, base_url):
     try:
@@ -244,52 +266,69 @@ def parse_entry_datetime(entry, tz):
             continue
     return None
 
-def _parse_feed_with_headers(url, timeout, ua=None, extra_headers=None):
-    resp = _get(url, timeout=timeout, ua=ua, extra_headers=extra_headers)
-    resp.raise_for_status()
-    return feedparser.parse(resp.content)
-
-
+# -------------------- Source fetcher -------------------------------------------
 def fetch_source(src, tz):
     name = src.get("name", "Unknown Source")
     feed_override = src.get("feed")
     homepage = src.get("homepage")
     selector = src.get("selector")
-    src_timeout = int(src.get("timeout", FETCH_TIMEOUT))
+
+    # Per-source knobs
+    src_timeout  = int(src.get("timeout", FETCH_TIMEOUT))
     feed_timeout = int(src.get("feed_timeout", src_timeout))
-    src_ua = src.get("user_agent")
-    src_headers = src.get("headers", {})
+    src_ua       = src.get("user_agent")
+    src_headers  = src.get("headers", {})
 
     if logger: logger.info(f"Processing source: {name}")
 
     try:
-        # Preferred: explicit feed
+        # Preferred path: explicit feed
         if feed_override:
-            if logger: logger.debug(f"Using direct feed: {feed_override}")
-            items = []
-            parsed = _parse_feed_with_headers(feed_override, timeout=feed_timeout, ua=src_ua, extra_headers=src_headers)
-            if getattr(parsed, "bozo", False) and getattr(parsed, "bozo_exception", None):
-                _lw(f"Feed parsing warning for {name}: {parsed.bozo_exception}")
-            for e in parsed.entries[:80]:
-                url = clean_url(e.get("link") or "")
-                if not url: continue
-                title = strip_ws(e.get("title") or "")
-                if not title: continue
-                dt = parse_entry_datetime(e, tz)
-                summary_html = e.get("summary") or e.get("description") or ""
-                summary = strip_ws(BeautifulSoup(summary_html, "html.parser").get_text())
-                items.append({
-                    "title": title, "url": url, "summary": summary,
-                    "published_at": to_iso(dt, tz) if dt else None
-                })
-            if logger: logger.info(f"Fetched {len(items)} items from feed for {name}")
-            return name, items, None
+            try:
+                items = []
+                parsed = _parse_feed_with_headers(feed_override, timeout=feed_timeout, ua=src_ua, extra_headers=src_headers)
+                if getattr(parsed, "bozo", False) and getattr(parsed, "bozo_exception", None):
+                    _lw(f"Feed parsing warning for {name}: {parsed.bozo_exception}")
+                for e in parsed.entries[:80]:
+                    url = clean_url(e.get("link") or "")
+                    if not url: continue
+                    title = strip_ws(e.get("title") or "")
+                    if not title: continue
+                    dt = parse_entry_datetime(e, tz)
+                    summary_html = e.get("summary") or e.get("description") or ""
+                    summary = strip_ws(BeautifulSoup(summary_html, "html.parser").get_text())
+                    items.append({
+                        "title": title, "url": url, "summary": summary,
+                        "published_at": to_iso(dt, tz) if dt else None
+                    })
+                if logger: logger.info(f"Fetched {len(items)} items from feed for {name}")
+                return name, items, None
 
+            except requests.HTTPError as e:
+                # ATO often 403s the feed on CI; fall back to listing scrape
+                status = getattr(e.response, "status_code", None)
+                if status == 403 and ("Taxation Office" in name or "ATO" in name):
+                    if logger: logger.warning(f"{name} feed returned 403; falling back to listing scrape")
+                    homepage_fallback = homepage or "https://www.ato.gov.au/Media-centre"
+                    selector_fallback = selector or "a[href*='/media-centre/']"
+                    try:
+                        resp = _get(homepage_fallback, timeout=src_timeout, ua=src_ua, extra_headers=src_headers)
+                        resp.raise_for_status()
+                        items = scrape_items_from_page(homepage_fallback, resp.text, selector_fallback)
+                        if logger: logger.info(f"Scraped {len(items)} items from HTML for {name} (fallback)")
+                        return name, items, None
+                    except Exception as ee:
+                        _le(f"{name} fallback scrape failed: {ee}")
+                        return name, [], f"Feed 403 + fallback failed: {ee}"
+                else:
+                    raise
+
+        # No explicit feed → fetch homepage (with per-source UA/headers)
         if not homepage:
             return name, [], "No feed or homepage provided"
 
-        # Homepage fetch with per-source timeout
-        resp = _get(homepage, timeout=src_timeout, ua=src_ua, extra_headers=src_headers); resp.raise_for_status()
+        resp = _get(homepage, timeout=src_timeout, ua=src_ua, extra_headers=src_headers)
+        resp.raise_for_status()
         html = resp.text
 
         # Try to discover feeds first (fetch with headers)
@@ -447,37 +486,87 @@ def cache_get(cache, url, tz):
 def cache_put(cache, url, content_html, tz):
     cache[url] = {"content_html": content_html, "fetched_at": datetime.now(tz).isoformat()}
 
-# -------------------- Filter ---------------------------------------------------
-def normalize_and_filter(all_items, tz):
+# -------------------- Filter (per-source windows + min_keep) -------------------
+def normalize_and_filter(all_items, tz, src_cfg_map):
+    """
+    - De-dup
+    - Apply per-source recency windows
+    - Optionally top up each source to a minimum count (min_keep)
+    """
+    # De-dup
     seen = set(); deduped = []
     for it in all_items:
         url = it.get("url")
-        if not url or url in seen: continue
+        if not url or url in seen: 
+            continue
         seen.add(url)
         it["title"] = strip_ws(it.get("title"))
         it["summary"] = strip_ws(it.get("summary"))
         deduped.append(it)
     if logger: logger.info(f"After deduplication: {len(deduped)} items")
 
-    # Configurable window (default 168h = 7 days)
-    WINDOW_HOURS = int(os.environ.get("RECENT_HOURS", "168"))
-    now = datetime.now(tz); cutoff = now - timedelta(hours=WINDOW_HOURS)
+    now = datetime.now(tz)
 
-    keep = []
-    for it in deduped:
-        iso = it.get("published_at")
-        if not iso:
-            keep.append(it); continue
+    def parse_iso(iso):
+        if not iso: return None
         try:
             dt = dtparser.parse(iso)
             if dt.tzinfo is None: dt = tz.localize(dt)
-            dt = dt.astimezone(tz)
+            return dt.astimezone(tz)
         except Exception:
-            keep.append(it); continue
-        if dt >= cutoff:
-            keep.append(it)
-    result = keep[:MAX_ARTICLES_TOTAL]
-    if logger: logger.info(f"After filtering (≤{WINDOW_HOURS}h + undated): {len(result)} items")
+            return None
+
+    # Primary filter: per-source cutoff
+    kept = []
+    for it in deduped:
+        src = it.get("source", "")
+        cfg = src_cfg_map.get(src, {})
+        hours = int(cfg.get("recent_hours", DEFAULT_RECENT_HOURS))
+        cutoff = now - timedelta(hours=hours)
+
+        dt = parse_iso(it.get("published_at"))
+        if dt is None or dt >= cutoff:
+            kept.append(it)
+
+    # Enforce per-source min_keep
+    by_source = {}
+    for it in deduped:
+        by_source.setdefault(it.get("source",""), []).append(it)
+    for src, lst in by_source.items():
+        cfg = src_cfg_map.get(src, {})
+        min_keep = int(cfg.get("min_keep", 0))
+        if min_keep <= 0:
+            continue
+        current = [i for i in kept if i.get("source","") == src]
+        if len(current) >= min_keep:
+            continue
+        # Sort all items for this source by date desc (None -> very old)
+        def key(i):
+            d = parse_iso(i.get("published_at"))
+            return d or datetime.fromtimestamp(0, tz)
+        ordered = sorted(lst, key=key, reverse=True)
+        # Append freshest not already kept until we meet min_keep
+        have_urls = {i.get("url") for i in kept}
+        for i in ordered:
+            if i.get("url") in have_urls:
+                continue
+            kept.append(i)
+            have_urls.add(i.get("url"))
+            if len([x for x in kept if x.get("source","") == src]) >= min_keep:
+                break
+
+    # Cap and sort newest first
+    def sort_key(it):
+        d = parse_iso(it.get("published_at"))
+        return d or datetime.fromtimestamp(0, tz)
+    kept.sort(key=sort_key, reverse=True)
+    result = kept[:MAX_ARTICLES_TOTAL]
+
+    if logger:
+        totals = {}
+        for i in result:
+            totals[i.get("source","")] = totals.get(i.get("source",""), 0) + 1
+        logger.info(f"After filtering/top-up: {len(result)} items (per-source: {totals})")
     return result
 
 def log_performance_stats(kept, cache, errors, start_time):
@@ -532,7 +621,16 @@ def main():
 
         log_memory_usage("after source collection")
 
-        kept = normalize_and_filter(collected, tz)
+        # Build per-source config map from sources.yaml
+        src_cfg_map = {}
+        for s in sources:
+            name = s.get("name","Unknown Source")
+            src_cfg_map[name] = {
+                "recent_hours": int(s.get("recent_hours", DEFAULT_RECENT_HOURS)),
+                "min_keep": int(s.get("min_keep", 0)),
+            }
+
+        kept = normalize_and_filter(collected, tz, src_cfg_map)
 
         # Decide what to fetch
         to_fetch, cache_hits = [], 0
