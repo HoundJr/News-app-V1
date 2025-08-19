@@ -1,8 +1,10 @@
 timezone: Australia/Brisbane
 
 sources:
-  - name: Australian Border Force
-    feed: "https://www.abf.gov.au/_layouts/15/AppPages/Rss.aspx?site=newsroom"   # ABF newsroom RSS
+   - name: Australian Border Force
+     feed: "https://www.abf.gov.au/_layouts/15/AppPages/Rss.aspx?site=newsroom"
+     recent_hours: 8760
+     min_keep: 5
  
   - name: Department of Social Services
     feed: "https://www.dss.gov.au/rss/updates.xml"                               # DSS site updates RSS
@@ -14,13 +16,18 @@ sources:
  
   - name: Australian Taxation Office (ATO)
     feed: "https://www.ato.gov.au/rss/media-centre.xml"
+    # fallback used only if feed 403s
+    homepage: "https://www.ato.gov.au/Media-centre"
+    selector: "a[href*='/media-centre/']"
     user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
     headers:
       Referer: "https://www.ato.gov.au/Media-centre"
       Accept: "application/rss+xml, text/xml;q=0.9, */*;q=0.8"
     feed_timeout: 45
+    timeout: 45
     recent_hours: 8760
     min_keep: 5
+
 
 
 
