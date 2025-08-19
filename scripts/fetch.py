@@ -244,11 +244,11 @@ def parse_entry_datetime(entry, tz):
             continue
     return None
 
-def _parse_feed_with_headers(url, timeout):
-    """Fetch feed with our UA/headers, then parse from bytes."""
-    resp = fetch_url(url, timeout=timeout)
+def _parse_feed_with_headers(url, timeout, ua=None, extra_headers=None):
+    resp = _get(url, timeout=timeout, ua=ua, extra_headers=extra_headers)
     resp.raise_for_status()
     return feedparser.parse(resp.content)
+
 
 def fetch_source(src, tz):
     name = src.get("name", "Unknown Source")
@@ -257,6 +257,8 @@ def fetch_source(src, tz):
     selector = src.get("selector")
     src_timeout = int(src.get("timeout", FETCH_TIMEOUT))
     feed_timeout = int(src.get("feed_timeout", src_timeout))
+    src_ua = src.get("user_agent")
+    src_headers = src.get("headers", {})
 
     if logger: logger.info(f"Processing source: {name}")
 
@@ -265,7 +267,7 @@ def fetch_source(src, tz):
         if feed_override:
             if logger: logger.debug(f"Using direct feed: {feed_override}")
             items = []
-            parsed = _parse_feed_with_headers(feed_override, timeout=feed_timeout)
+            parsed = _parse_feed_with_headers(feed_override, timeout=feed_timeout, ua=src_ua, extra_headers=src_headers)
             if getattr(parsed, "bozo", False) and getattr(parsed, "bozo_exception", None):
                 _lw(f"Feed parsing warning for {name}: {parsed.bozo_exception}")
             for e in parsed.entries[:80]:
@@ -287,7 +289,7 @@ def fetch_source(src, tz):
             return name, [], "No feed or homepage provided"
 
         # Homepage fetch with per-source timeout
-        resp = fetch_url(homepage, timeout=src_timeout); resp.raise_for_status()
+        resp = _get(homepage, timeout=src_timeout, ua=src_ua, extra_headers=src_headers); resp.raise_for_status()
         html = resp.text
 
         # Try to discover feeds first (fetch with headers)
@@ -296,7 +298,7 @@ def fetch_source(src, tz):
             items = []
             for feed_url in feed_links[:2]:
                 try:
-                    parsed = _parse_feed_with_headers(feed_url, timeout=feed_timeout)
+                    parsed = _parse_feed_with_headers(feed_url, timeout=feed_timeout, ua=src_ua, extra_headers=src_headers)
                     if getattr(parsed, "bozo", False) and getattr(parsed, "bozo_exception", None):
                         _lw(f"Feed parsing warning for {feed_url}: {parsed.bozo_exception}")
                     for e in parsed.entries[:80]:
